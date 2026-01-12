@@ -9,6 +9,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using VRage;
@@ -77,7 +78,7 @@ namespace IngameScript
             speedPID = new PIDController(speedKp, speedKi, speedKd, speedN, 1.0, -1.0);
 
             isRunning = true;
-            logSystem.Log("飞行控制器已启动");
+            logSystem.Log("飞行控制器V0.2已启动");
         }
 
         public void Save()
@@ -112,7 +113,7 @@ namespace IngameScript
                     forward = Vector3D.Normalize(Vector3D.Cross(controller.WorldMatrix.Left, up));
                     right = Vector3D.Normalize(Vector3D.Cross(forward, up));
                 }
-                targetVectory += moveVector.Z * forward;
+                targetVectory -= moveVector.Z * forward;
                 targetVectory += moveVector.X * right;
                 targetVectory += moveVector.Y * up;
                 targetVectory = Vector3D.Normalize(targetVectory);
@@ -120,33 +121,26 @@ namespace IngameScript
             return targetVectory;
         }
 
-
         private Vector3D calcAcc(Vector3D targetVectory, Vector3D gravity)
         {
             var error = targetVectory * speedTarget - controller.GetShipVelocities().LinearVelocity;
             float pidOut = (float)speedPID.Calculate(0, error.Length(), TimeSpan.FromSeconds((double)Runtime.TimeSinceLastRun.TotalSeconds));
-            return Vector3D.Normalize(error) * pidOut + gravity;
+            return Vector3D.Normalize(error) * pidOut - gravity;
         }
 
-        private Vector3D getTargetRotation(Vector3D targetDir, double maxAngleDegrees = 15)
+        private Vector3D getTargetRotation(Vector4D axisAngle, double maxAngleDegrees = 15)
         {
-            Vector3D originNormalized = Vector3D.Normalize(controller.WorldMatrix.Down);
-            Vector3D toNormalized = Vector3D.Normalize(targetDir);
             double dt = (double)Runtime.TimeSinceLastRun.TotalSeconds;
-            Vector3D axis = Vector3D.Cross(originNormalized, toNormalized);
-            double sin = axis.Length();
-            double cos = Vector3D.Dot(originNormalized, toNormalized);
-            double angle = Math.Atan2(sin, cos);
             double maxAngle = MathHelper.ToRadians(maxAngleDegrees);
-            angle = MathHelper.Min(angle, maxAngle);
+            var angle = MathHelper.Min(axisAngle.W, maxAngle);
             float pidOut = (float)rotationPID.Calculate(0, angle, TimeSpan.FromSeconds(dt));
-            axis = Vector3D.Normalize(axis) * pidOut;
+            Vector3D axis = Vector3D.Normalize(new Vector3D(axisAngle.X, axisAngle.Y, axisAngle.Z)) * pidOut;
             return axis;
         }
 
         private Vector4D axisAngle(Vector3D targetAcc)
         {
-            Vector3D originNormalized = Vector3D.Normalize(controller.WorldMatrix.Down);
+            Vector3D originNormalized = Vector3D.Normalize(controller.WorldMatrix.Up);
             Vector3D toNormalized = Vector3D.Normalize(targetAcc);
             Vector3D axis = Vector3D.Cross(originNormalized, toNormalized);
             double sin = axis.Length();
@@ -172,45 +166,28 @@ namespace IngameScript
             }
         }
 
+        Vector3D lastMoveIndicator = Vector3D.Zero;
         private void Update()
         {
             var moveIndicator = controller.MoveIndicator;
             var rotationIndicator = controller.RotationIndicator;
-            if (moveIndicator.Length() < 0.01 && rotationIndicator.Length() < 0.01)
-            {
-                Vector3D gravity = controller.GetNaturalGravity();
-                // Vector3D targetVectory = TargetVectory(gravity);
-                Vector3D desiredAcc = calcAcc(Vector3D.Zero, gravity);
-                Vector4D axisAng = axisAngle(desiredAcc + gravity);
-                ThrustOverride(desiredAcc);
-                Vector3D desiredRot = getTargetRotation(desiredAcc);
-                GrayRotate(desiredRot);
-                // desiredRot += controller.RotationIndicator.X * controller.WorldMatrix.Down * rotationTarget * Runtime.TimeSinceLastRun.TotalSeconds;
-                return;
-            }
-            else
+
+            Vector3D gravity = controller.GetNaturalGravity();
+            Vector3D targetVectory = TargetVectory(gravity);
+            Vector3D desiredAcc = calcAcc(targetVectory, gravity);
+            Vector4D axisAngle = this.axisAngle(desiredAcc);
+            Vector3D desiredRot = getTargetRotation(axisAngle);
+            GrayRotate(desiredRot);
+            ThrustOverride(desiredAcc);
+            if (lastMoveIndicator != moveIndicator)
             {
                 speedPID.ResetController();
                 rotationPID.ResetController();
-                for (int i = 0; i < gyros.Count; i++)
-                {
-                    gyros[i].GyroOverride = false;
-                }
-                for (int i = 0; i < thrusters.Count; i++)
-                {
-                    thrusters[i].ThrustOverride = 0f;
-                }
+                lastMoveIndicator = moveIndicator;
             }
-            // 这里添加飞行控制逻辑
-            // Vector3D gravity = controller.GetNaturalGravity();
-            // Vector3D targetVectory = TargetVectory(gravity);
-            // Vector3D desiredAcc = calcAcc(targetVectory * speedTarget, gravity);
-            // Vector3D desiredRot = getTargetRotation(desiredAcc + gravity);
-            // desiredRot += controller.RotationIndicator.X * controller.WorldMatrix.Down * rotationTarget * Runtime.TimeSinceLastRun.TotalSeconds;
-            // GrayRotate(desiredRot);
         }
 
-        private void GrayRotate(Vector3 rotationVector)
+        private void GrayRotate(Vector3D rotationVector)
         {
             foreach (var gyro in gyros)
             {
