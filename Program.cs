@@ -65,15 +65,15 @@ namespace IngameScript
             var parameters = new ParameterParser(Me.CustomData);
             speedTarget = parameters.GetFloat("speedTarget", 20.0f);
             var rotationKp = parameters.GetFloat("rotationKp", 3.5f);
-            var rotationKi = parameters.GetFloat("rotationKi", 0.01f);
-            var rotationKd = parameters.GetFloat("rotationKd", 0.01f);
+            var rotationKi = parameters.GetFloat("rotationKi", 0.00f);
+            var rotationKd = parameters.GetFloat("rotationKd", 0.00f);
             var rotationN = parameters.GetFloat("rotationN", 10.0f);
             rotationPID = new PIDController(rotationKp, rotationKi, rotationKd, rotationN, 1.0, -1.0);
-            var speedKp = parameters.GetFloat("speedKp", 0.4f);
-            var speedKi = parameters.GetFloat("speedKi", 0.0001f);
-            var speedKd = parameters.GetFloat("speedKd", 0.01f);
+            var speedKp = parameters.GetFloat("speedKp", 6.0f);
+            var speedKi = parameters.GetFloat("speedKi", 0.00f);
+            var speedKd = parameters.GetFloat("speedKd", 0.00f);
             var speedN = parameters.GetFloat("speedN", 10.0f);
-            speedPID = new PIDController(speedKp, speedKi, speedKd, speedN, 1.0, -1.0f);
+            speedPID = new PIDController(speedKp, speedKi, speedKd, speedN, 1.0, -1.0);
 
             GridTerminalSystem.GetBlocksOfType(controllers, c => c.CubeGrid == Me.CubeGrid);
             if (controllers.Count == 0)
@@ -164,14 +164,15 @@ namespace IngameScript
         {
             get
             {
+                Vector3D gravity = controller.GetNaturalGravity();
                 Vector3D currentVelocity = controller.GetShipVelocities().LinearVelocity;
                 Vector3D velocityError = targetVelocity - currentVelocity;
-                if (velocityError.LengthSquared() > 5)
+                if (velocityError.LengthSquared() > 3)
                 {
-                    velocityError = velocityError.Normalized() * 5;
+                    velocityError = velocityError.Normalized() * 3;
                 }
                 Vector3D desiredAcceleration = velocityError * speedPID.Calculate(0.0, velocityError.Length(), Runtime.TimeSinceLastRun);
-                return desiredAcceleration - controller.GetNaturalGravity();
+                return desiredAcceleration - gravity;
             }
         }
 
@@ -182,17 +183,33 @@ namespace IngameScript
             ThrustOverride(desiredAcceleration);
             RotateTo(controller.WorldMatrix.Up, desiredAcceleration);
             rotationPID.ResetController();
+            // speedPID.ResetController();
         }
 
         private void ThrustOverride(Vector3D desiredAcc)
         {
-            double accAlongThrust = Math.Max(0, Vector3D.Dot(desiredAcc, controller.WorldMatrix.Up));
+            Vector3D from = Vector3D.Normalize(controller.WorldMatrix.Down);
+            Vector3D target = Vector3D.Normalize(desiredAcc);
+            Vector3D axis = Vector3D.Cross(from, target);
+            double cosAngle = Vector3D.Dot(from, target);
+            double sinAngle = axis.Length();
+            double angle = Math.Atan2(sinAngle, cosAngle);
+            if (angle > MathHelper.ToRadians(10))
+            {
+                // 角度过大，停止推进器
+                foreach (var thruster in thrusters)
+                {
+                    thruster.ThrustOverridePercentage = 0f;
+                }
+                return;
+            }
+
             float totalThrust = 0f;
             foreach (var thruster in thrusters)
             {
                 totalThrust += thruster.MaxEffectiveThrust;
             }
-            float requiredThrust = (float)(accAlongThrust * controller.CalculateShipMass().TotalMass);
+            float requiredThrust = (float)(desiredAcc.Length() * controller.CalculateShipMass().TotalMass);
             float thrustPercent = MathHelper.Clamp(requiredThrust / totalThrust, 0f, 1f);
             foreach (var thruster in thrusters)
             {
