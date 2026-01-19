@@ -188,13 +188,13 @@ namespace IngameScript
 
         private void ThrustOverride(Vector3D desiredAcc)
         {
-            Vector3D from = Vector3D.Normalize(controller.WorldMatrix.Down);
+            Vector3D from = Vector3D.Normalize(controller.WorldMatrix.Up);
             Vector3D target = Vector3D.Normalize(desiredAcc);
             Vector3D axis = Vector3D.Cross(from, target);
             double cosAngle = Vector3D.Dot(from, target);
             double sinAngle = axis.Length();
             double angle = Math.Atan2(sinAngle, cosAngle);
-            if (angle > MathHelper.ToRadians(10))
+            if (angle > MathHelper.ToRadians(5))
             {
                 // 角度过大，停止推进器
                 foreach (var thruster in thrusters)
