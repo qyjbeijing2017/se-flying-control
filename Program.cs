@@ -69,9 +69,9 @@ namespace IngameScript
             var rotationKd = parameters.GetFloat("rotationKd", 0.00f);
             var rotationN = parameters.GetFloat("rotationN", 10.0f);
             rotationPID = new PIDController(rotationKp, rotationKi, rotationKd, rotationN, 1.0, -1.0);
-            var speedKp = parameters.GetFloat("speedKp", 6.0f);
-            var speedKi = parameters.GetFloat("speedKi", 0.00f);
-            var speedKd = parameters.GetFloat("speedKd", 0.00f);
+            var speedKp = parameters.GetFloat("speedKp", 2.0f);
+            var speedKi = parameters.GetFloat("speedKi", 0.005f);
+            var speedKd = parameters.GetFloat("speedKd", 0.01f);
             var speedN = parameters.GetFloat("speedN", 10.0f);
             speedPID = new PIDController(speedKp, speedKi, speedKd, speedN, 1.0, -1.0);
 
@@ -171,6 +171,11 @@ namespace IngameScript
                 {
                     velocityError = velocityError.Normalized() * 3;
                 }
+                if (velocityError.Length() < 0.1)
+                {
+                    speedPID.ResetController();
+                    return -gravity;
+                }
                 Vector3D desiredAcceleration = velocityError * speedPID.Calculate(0.0, velocityError.Length(), Runtime.TimeSinceLastRun);
                 return desiredAcceleration - gravity;
             }
@@ -194,15 +199,15 @@ namespace IngameScript
             double cosAngle = Vector3D.Dot(from, target);
             double sinAngle = axis.Length();
             double angle = Math.Atan2(sinAngle, cosAngle);
-            if (angle > MathHelper.ToRadians(5))
-            {
-                // 角度过大，停止推进器
-                foreach (var thruster in thrusters)
-                {
-                    thruster.ThrustOverridePercentage = 0f;
-                }
-                return;
-            }
+            // if (angle > MathHelper.ToRadians(1))
+            // {
+            //     // 角度过大，停止推进器
+            //     foreach (var thruster in thrusters)
+            //     {
+            //         thruster.ThrustOverridePercentage = 0f;
+            //     }
+            //     return;
+            // }
 
             float totalThrust = 0f;
             foreach (var thruster in thrusters)
