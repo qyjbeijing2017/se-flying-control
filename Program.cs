@@ -15,6 +15,7 @@ using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using VRage;
+using VRage.Audio;
 using VRage.Collections;
 using VRage.Game;
 using VRage.Game.Components;
@@ -34,6 +35,8 @@ namespace IngameScript
         List<IMyGyro> gyros = new List<IMyGyro>();
 
         float speedTarget = 5.0f; // 目标速度 m/s
+
+        float rotationSpeedTarget = MathHelper.ToRadians(180); // 目标旋转速度 rad/s
 
         PIDController rotationPID;
         PIDController speedPID;
@@ -151,13 +154,23 @@ namespace IngameScript
 
         private void RotateTo(Vector3D from, Vector3D target)
         {
+            var yOper = -controller.RotationIndicator.X;
+            var down = controller.GetNaturalGravity();
+            if (down.LengthSquared() < 0.01)
+            {
+                down = controller.WorldMatrix.Down;
+            }
+            down = Vector3D.Normalize(down);
+            var yRotate = Math.Sin(yOper * rotationSpeedTarget * Runtime.TimeSinceLastRun.TotalSeconds) * down;
+
+
             Vector3D axis = Vector3D.Cross(from, target);
             double cosAngle = Vector3D.Dot(from, target);
             double sinAngle = axis.Length();
             double angle = MathHelper.Min(Math.Atan2(sinAngle, cosAngle), MathHelper.ToRadians(30));
             axis.Normalize();
             Vector3D omegaTarget = axis.Normalized() * rotationPID.Calculate(0.0, angle, Runtime.TimeSinceLastRun);
-            GrayRotate(omegaTarget);
+            GrayRotate(omegaTarget + yRotate);
         }
 
         Vector3D targetAcceleration
